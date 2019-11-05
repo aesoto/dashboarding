@@ -1,1 +1,36 @@
+askStartDate <- function() { return(readline(prompt='Enter start date: ')) }
+askEndDate <- function() { return(readline(prompt='Enter end date: ')) }
 
+setDate <- function(input) {
+  date <- mdy(input)
+  date <- checkDate(date)
+  return(date)
+}
+
+checkDate <- function(date) {
+  create.calendar(name='mycal', weekdays=c('saturday', 'sunday'))
+  return(adjust.previous(date, 'mycal'))
+}
+
+getPrevDate <- function(date) {
+  create.calendar(name='mycal', weekdays=c('saturday', 'sunday'))
+  prevDate <- bizdays::offset(date, -1, 'mycal')
+  return(prevDate)
+}
+
+formatDate <- function(date) { return(format(date, format='%Y.%m.%d')) }
+
+getDates <- function() {
+  start <- askStartDate()
+  startDate <- setDate(start)
+  
+  end <- askEndDate()
+  endDate <- setDate(end)
+  
+  days <- bizseq(startDate, endDate, 'mycal')
+  interval <- length(days)
+  days <- formatDate(days)
+  
+  dates <- list(start=startDate, end=endDate, interval=interval, days=days)
+  return(dates)
+}

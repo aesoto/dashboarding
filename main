@@ -1,1 +1,13 @@
+# Dashboard Publisher
+# By: AESoto
+# 3 November 2019
 
+publicationLibraries <- c('data.table', 'dplyr', 'tidyr', 'lubridate', 'purrr', 'bizdays', 'rowr', 'here', 'stringr', 'readxl', 'XLConnect')
+lapply(publicationLibraries, require, character.only=TRUE)
+#'xlsx',  'writexl',
+
+source(here('functions', 'mainFuncs.R'))
+
+if (sys.nframe() == 0) {
+  main()
+}

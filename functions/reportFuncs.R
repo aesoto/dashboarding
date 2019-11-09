@@ -23,6 +23,10 @@ makeReports <- function(attributionData) {
       allocation <- getAllocation(attributionPanel)
       categoryReturns <- getCategoryReturns(attributionPanel, printDate)
       positionsData <- processPositions(attributionPanel, account, reportDate)
+      positionsData_US <- processPositions_US(attributionPanel, account, reportDate)
+      positionsData_Intl <- processPositions_Intl(attributionPanel, account, reportDate)
+      positionsData_FI <- processPositions_FI(attributionPanel, account, reportDate)
+      positionsData_Other <- processPositions_Other(attributionPanel, account, reportDate)
       
       # record day's data for trailing calculations, retain historical record for further calculation
       attributionData <- storeAttributionData(attributionPanel, account, reportDate)
@@ -36,6 +40,14 @@ makeReports <- function(attributionData) {
       # print metrics onto template
       publishData(allocation, totalReturn, attribution,
                   categoryReturns, positionsData, account, reportDate, trailingMetrics)
+      publishData_US(allocation, totalReturn, attribution,
+                     categoryReturns, positionsData_US, account, reportDate, trailingMetrics)
+      publishData_Intl(allocation, totalReturn, attribution,
+                       categoryReturns, positionsData_Intl, account, reportDate, trailingMetrics)
+      publishData_FI(allocation, totalReturn, attribution,
+                     categoryReturns, positionsData_FI, account, reportDate, trailingMetrics)
+      publishData_Other(allocation, totalReturn, attribution,
+                        categoryReturns, positionsData_Other, account, reportDate, trailingMetrics)
     }
   }
 }
@@ -145,6 +157,42 @@ processPositions <- function(attributionPanel, account, reportDate) {
   return(positionsData)
 }
 
+processPositions_US <- function(attributionPanel, account, reportDate) {
+  MTDReturn_US <- calculateMTDReturn_US(allData, reportDate)
+  topHoldings_US <- getTopHoldings_US(attributionPanel)
+  bottomHoldings_US <- getBottomHoldings_US(attributionPanel)
+  positionsData_US <- list(bestDay=topHoldings_US, worstDay=bottomHoldings_US,
+                           bestMTD=MTDReturn_US$bestMTD, worstMTD=MTDReturn_US$worstMTD)
+  return(positionsData_US)
+}
+
+processPositions_Intl <- function(attributionPanel, account, reportDate) {
+  MTDReturn_Intl <- calculateMTDReturn_Intl(allData, reportDate) 
+  topHoldings_Intl <- getTopHoldings_Intl(attributionPanel)
+  bottomHoldings_Intl <- getBottomHoldings_Intl(attributionPanel)
+  positionsData_Intl <- list(bestDay=topHoldings_Intl, worstDay=bottomHoldings_Intl,
+                             bestMTD=MTDReturn_Intl$bestMTD, worstMTD=MTDReturn_Intl$worstMTD)
+  return(positionsData_Intl)
+}
+
+processPositions_FI <- function(attributionPanel, account, reportDate) {
+  MTDReturn_FI <- calculateMTDReturn_FI(allData, reportDate)   
+  topHoldings_FI <- getTopHoldings_FI(attributionPanel)
+  bottomHoldings_FI <- getBottomHoldings_FI(attributionPanel)
+  positionsData_FI <- list(bestDay=topHoldings_FI, worstDay=bottomHoldings_FI,
+                           bestMTD=MTDReturn_FI$bestMTD, worstMTD=MTDReturn_FI$worstMTD)  
+  return(positionsData_FI)
+}
+
+processPositions_Other <- function(attributionPanel, account, reportDate) {
+  MTDReturn_Other <- calculateMTDReturn_Other(allData, reportDate)
+  topHoldings_Other <- getTopHoldings_Other(attributionPanel) 
+  bottomHoldings_Other <- getBottomHoldings_Other(attributionPanel)
+  positionsData_Other <- list(bestDay=topHoldings_Other, worstDay=bottomHoldings_Other,
+                              bestMTD=MTDReturn_Other$bestMTD, worstMTD=MTDReturn_Other$worstMTD)
+  return(positionsData_Other)
+}
+
 storeHoldingsData <- function(attributionPanel, account, reportDate){
   calendarDate <- as.Date(reportDate, '%Y.%m.%d')
   fileDate <- format(calendarDate, '%Y.%m')
@@ -208,6 +256,158 @@ calculateMTDReturn <- function(allData, reportDate) {
   returnDates <- format(returnDates, '%Y.%m.%d')
   
   positions <- allData[allData$returnType=='active',]
+  positions <- positions[positions$date %in% returnDates,]
+  
+  returns <- data.frame(Selection=as.character(),
+                        Sec_Des=as.character(),
+                        return=as.numeric())
+  for(day in returnDates) {
+    temp <- positions[positions$date==day,]
+    temp <- temp[c('Selection', 'Sec_Des', 'return')]
+    if(nrow(returns)==0) { 
+      returns <- temp 
+    } else {
+      returns <- returns %>% 
+        full_join(temp, by=c('Selection', 'Sec_Des'))
+      returns <- returns %>%
+        mutate_if(is.numeric,~ ifelse(is.na(.), 1, .))
+    }
+  }
+  temp <- select(returns, Selection, Sec_Des)
+  temp1 <- select(returns, -Selection, -Sec_Des)
+  temp1 <- temp1 %>%
+    mutate('actvRet' = Reduce('*', .))
+  temp1 <- temp1['actvRet']
+  returns <- cbind(temp, temp1)
+  
+  winnerPanel <- getTopMTDHoldings(returns, returnDates, allData)
+  loserPanel <- getBottomMTDHoldings(returns, returnDates, allData)
+  mtdData <- list(bestMTD=winnerPanel, worstMTD=loserPanel)
+  return(mtdData)
+}
+
+calculateMTDReturn_US <- function(allData, reportDate) {
+  date <- as.Date(reportDate, format='%Y.%m.%d')
+  prevDate <- bizdays::getdate('first bizday', ref(date, ym='month'), 'mycal')
+  returnDates <- bizdays::bizseq(prevDate, date, 'mycal')
+  returnDates <- format(returnDates, '%Y.%m.%d')
+  
+  positions <- allData[allData$Level2=='US',]
+  positions <- positions[positions$returnType=='active',]
+  positions <- positions[positions$date %in% returnDates,]
+  
+  returns <- data.frame(Selection=as.character(),
+                        Sec_Des=as.character(),
+                        return=as.numeric())
+  for(day in returnDates) {
+    temp <- positions[positions$date==day,]
+    temp <- temp[c('Selection', 'Sec_Des', 'return')]
+    if(nrow(returns)==0) { 
+      returns <- temp 
+    } else {
+      returns <- returns %>% 
+        full_join(temp, by=c('Selection', 'Sec_Des'))
+      returns <- returns %>%
+        mutate_if(is.numeric,~ ifelse(is.na(.), 1, .))
+    }
+  }
+  temp <- select(returns, Selection, Sec_Des)
+  temp1 <- select(returns, -Selection, -Sec_Des)
+  temp1 <- temp1 %>%
+    mutate('actvRet' = Reduce('*', .))
+  temp1 <- temp1['actvRet']
+  returns <- cbind(temp, temp1)
+  
+  winnerPanel <- getTopMTDHoldings(returns, returnDates, allData)
+  loserPanel <- getBottomMTDHoldings(returns, returnDates, allData)
+  mtdData <- list(bestMTD=winnerPanel, worstMTD=loserPanel)
+  return(mtdData)
+}
+
+calculateMTDReturn_Intl <- function(allData, reportDate) {
+  date <- as.Date(reportDate, format='%Y.%m.%d')
+  prevDate <- bizdays::getdate('first bizday', ref(date, ym='month'), 'mycal')
+  returnDates <- bizdays::bizseq(prevDate, date, 'mycal')
+  returnDates <- format(returnDates, '%Y.%m.%d')
+  
+  positions <- allData[allData$Level2=='Intl',]
+  positions <- positions[positions$returnType=='active',]
+  positions <- positions[positions$date %in% returnDates,]
+  
+  returns <- data.frame(Selection=as.character(),
+                        Sec_Des=as.character(),
+                        return=as.numeric())
+  for(day in returnDates) {
+    temp <- positions[positions$date==day,]
+    temp <- temp[c('Selection', 'Sec_Des', 'return')]
+    if(nrow(returns)==0) { 
+      returns <- temp 
+    } else {
+      returns <- returns %>% 
+        full_join(temp, by=c('Selection', 'Sec_Des'))
+      returns <- returns %>%
+        mutate_if(is.numeric,~ ifelse(is.na(.), 1, .))
+    }
+  }
+  temp <- select(returns, Selection, Sec_Des)
+  temp1 <- select(returns, -Selection, -Sec_Des)
+  temp1 <- temp1 %>%
+    mutate('actvRet' = Reduce('*', .))
+  temp1 <- temp1['actvRet']
+  returns <- cbind(temp, temp1)
+  
+  winnerPanel <- getTopMTDHoldings(returns, returnDates, allData)
+  loserPanel <- getBottomMTDHoldings(returns, returnDates, allData)
+  mtdData <- list(bestMTD=winnerPanel, worstMTD=loserPanel)
+  return(mtdData)
+}
+
+calculateMTDReturn_FI <- function(allData, reportDate) {
+  date <- as.Date(reportDate, format='%Y.%m.%d')
+  prevDate <- bizdays::getdate('first bizday', ref(date, ym='month'), 'mycal')
+  returnDates <- bizdays::bizseq(prevDate, date, 'mycal')
+  returnDates <- format(returnDates, '%Y.%m.%d')
+  
+  positions <- allData[allData$Level2=='FI',]
+  positions <- positions[positions$returnType=='active',]
+  positions <- positions[positions$date %in% returnDates,]
+  
+  returns <- data.frame(Selection=as.character(),
+                        Sec_Des=as.character(),
+                        return=as.numeric())
+  for(day in returnDates) {
+    temp <- positions[positions$date==day,]
+    temp <- temp[c('Selection', 'Sec_Des', 'return')]
+    if(nrow(returns)==0) { 
+      returns <- temp 
+    } else {
+      returns <- returns %>% 
+        full_join(temp, by=c('Selection', 'Sec_Des'))
+      returns <- returns %>%
+        mutate_if(is.numeric,~ ifelse(is.na(.), 1, .))
+    }
+  }
+  temp <- select(returns, Selection, Sec_Des)
+  temp1 <- select(returns, -Selection, -Sec_Des)
+  temp1 <- temp1 %>%
+    mutate('actvRet' = Reduce('*', .))
+  temp1 <- temp1['actvRet']
+  returns <- cbind(temp, temp1)
+  
+  winnerPanel <- getTopMTDHoldings(returns, returnDates, allData)
+  loserPanel <- getBottomMTDHoldings(returns, returnDates, allData)
+  mtdData <- list(bestMTD=winnerPanel, worstMTD=loserPanel)
+  return(mtdData)
+}
+
+calculateMTDReturn_Other <- function(allData, reportDate) {
+  date <- as.Date(reportDate, format='%Y.%m.%d')
+  prevDate <- bizdays::getdate('first bizday', ref(date, ym='month'), 'mycal')
+  returnDates <- bizdays::bizseq(prevDate, date, 'mycal')
+  returnDates <- format(returnDates, '%Y.%m.%d')
+  
+  positions <- allData[allData$Level2=='Other',]
+  positions <- positions[positions$returnType=='active',]
   positions <- positions[positions$date %in% returnDates,]
   
   returns <- data.frame(Selection=as.character(),
@@ -379,10 +579,10 @@ getBottomMTDHoldings <- function(returns, returnDates, allData){
 }
 
 getTopHoldings <- function(attributionPanel) {
-  categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
   holdingsData <- attributionPanel[attributionPanel$Selection!='',]
   holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
-  holdingsData <- holdingsData[holdingsData$Level2 %in% categories,]
+  #holdingsData <- holdingsData[holdingsData$Level2 %in% categories,]
   holdingsData <- holdingsData[order(holdingsData$Selection),]
   holdingsData$PortRet <- 1 - holdingsData$PortRet
   holdingsData$BenchRet <- 1 - holdingsData$BenchRet
@@ -400,11 +600,162 @@ getTopHoldings <- function(attributionPanel) {
   return(winners)
 }
 
-getBottomHoldings <- function(attributionPanel) {
-  categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+getTopHoldings_US <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
   holdingsData <- attributionPanel[attributionPanel$Selection!='',]
   holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
-  holdingsData <- holdingsData[holdingsData$Level2 %in% categories,]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'US',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  winners <- holdingsData[order(-holdingsData$actvRet),]
+  winners <- head(winners, 10)
+  winners <- winners[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  winners$PortRet <- winners$PortRet - 1
+  winners$BenchRet <- winners$BenchRet - 1
+  winners$actvRet <- winners$actvRet - 1
+  names(winners) <- c('Top Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  winners <- winners %>% 
+    mutate_if(is.numeric, list(~round(.,6)))
+  return(winners)
+}
+
+getTopHoldings_Intl <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Intl',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  winners <- holdingsData[order(-holdingsData$actvRet),]
+  winners <- head(winners, 10)
+  winners <- winners[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  winners$PortRet <- winners$PortRet - 1
+  winners$BenchRet <- winners$BenchRet - 1
+  winners$actvRet <- winners$actvRet - 1
+  names(winners) <- c('Top Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  winners <- winners %>% 
+    mutate_if(is.numeric, list(~round(.,6)))
+  return(winners)
+}
+
+getTopHoldings_FI <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Fixed Income',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  winners <- holdingsData[order(-holdingsData$actvRet),]
+  winners <- head(winners, 10)
+  winners <- winners[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  winners$PortRet <- winners$PortRet - 1
+  winners$BenchRet <- winners$BenchRet - 1
+  winners$actvRet <- winners$actvRet - 1
+  names(winners) <- c('Top Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  winners <- winners %>% 
+    mutate_if(is.numeric, list(~round(.,6)))
+  return(winners)
+}
+
+getTopHoldings_Other <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Other',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  winners <- holdingsData[order(-holdingsData$actvRet),]
+  winners <- head(winners, 10)
+  winners <- winners[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  winners$PortRet <- winners$PortRet - 1
+  winners$BenchRet <- winners$BenchRet - 1
+  winners$actvRet <- winners$actvRet - 1
+  names(winners) <- c('Top Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  winners <- winners %>% 
+    mutate_if(is.numeric, list(~round(.,6)))
+  return(winners)
+}
+
+getBottomHoldings_US <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'US',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  losers <- holdingsData[order(holdingsData$actvRet),]
+  losers <- head(losers, 10)
+  losers <- losers[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  losers$PortRet <- losers$PortRet - 1
+  losers$BenchRet <- losers$BenchRet - 1
+  losers$actvRet <- losers$actvRet - 1
+  names(losers) <- c('Bottom Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  losers <- losers %>% mutate_if(is.numeric, list(~round(.,6)))
+  return(losers)
+}
+
+getBottomHoldings_Intl <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Intl',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  losers <- holdingsData[order(holdingsData$actvRet),]
+  losers <- head(losers, 10)
+  losers <- losers[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  losers$PortRet <- losers$PortRet - 1
+  losers$BenchRet <- losers$BenchRet - 1
+  losers$actvRet <- losers$actvRet - 1
+  names(losers) <- c('Bottom Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  losers <- losers %>% mutate_if(is.numeric, list(~round(.,6)))
+  return(losers)
+}
+
+getBottomHoldings_FI <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Fixed Income',]
+  holdingsData <- holdingsData[order(holdingsData$Selection),]
+  holdingsData$PortRet <- 1 - holdingsData$PortRet
+  holdingsData$BenchRet <- 1 - holdingsData$BenchRet
+  holdingsData$actvRet <- 1 - holdingsData$actvRet
+  
+  losers <- holdingsData[order(holdingsData$actvRet),]
+  losers <- head(losers, 10)
+  losers <- losers[c('Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  losers$PortRet <- losers$PortRet - 1
+  losers$BenchRet <- losers$BenchRet - 1
+  losers$actvRet <- losers$actvRet - 1
+  names(losers) <- c('Bottom Contributors - Daily', 'Daily Return', 'Bench Return', 'Relative Contr.')
+  losers <- losers %>% mutate_if(is.numeric, list(~round(.,6)))
+  return(losers)
+}
+
+getBottomHoldings_Other <- function(attributionPanel) {
+  #categories <- c('US', 'Intl', 'Fixed Income', 'Other')
+  holdingsData <- attributionPanel[attributionPanel$Selection!='',]
+  holdingsData <- holdingsData[c('Level2', 'Selection', 'Sec_Des', 'PortRet', 'BenchRet', 'actvRet')]
+  holdingsData <- holdingsData[holdingsData$Level2 == 'Other',]
   holdingsData <- holdingsData[order(holdingsData$Selection),]
   holdingsData$PortRet <- 1 - holdingsData$PortRet
   holdingsData$BenchRet <- 1 - holdingsData$BenchRet
@@ -541,21 +892,17 @@ publishData <- function(allocation, totalReturn, attribution,
   wb <- loadWorkbook(template.path, create = FALSE)
   setStyleAction(wb,XLC$"STYLE_ACTION.NONE")
   
-  publishDataGroups <- c('Summary', 'US', 'Intl', 'Fixed Income', 'Other')
+  Summary <- readWorksheet(wb, sheet='Summary')
+  writeWorksheet(wb, allocation, sheet='Summary', startRow=3, startCol=3)
+  writeWorksheet(wb, totalReturn, sheet='Summary', startRow=12, startCol=3)
+  writeWorksheet(wb, attribution, sheet='Summary', startRow=20, startCol=3)
+  writeWorksheet(wb, categoryReturns, sheet='Summary', startRow=30, startCol=3)
   
- for(ws_publishData in publishDataGroups) {
+  writeWorksheet(wb, bestDay, sheet='Summary', startRow=3, startCol=14)
+  writeWorksheet(wb, worstDay, sheet='Summary', startRow=15, startCol=14)
   
-  publishDataGroup <- readWorksheet(wb, ws_publishData)
-  writeWorksheet(wb, allocation, sheet=ws_publishData, startRow=3, startCol=3)
-  writeWorksheet(wb, totalReturn, sheet=ws_publishData, startRow=12, startCol=3)
-  writeWorksheet(wb, attribution, sheet=ws_publishData, startRow=20, startCol=3)
-  writeWorksheet(wb, categoryReturns, sheet=pws_publishData, startRow=30, startCol=3)
-  
-  writeWorksheet(wb, bestDay, sheet=ws_publishData, startRow=3, startCol=14)
-  writeWorksheet(wb, worstDay, sheet=ws_publishData, startRow=15, startCol=14)
-  
-  writeWorksheet(wb, bestMTD, sheet=ws_publishData, startRow=29, startCol=14)
-  writeWorksheet(wb, worstMTD, sheet=ws_publishData, startRow=41, startCol=14)
+  writeWorksheet(wb, bestMTD, sheet='Summary', startRow=29, startCol=14)
+  writeWorksheet(wb, worstMTD, sheet='Summary', startRow=41, startCol=14)
   
   # publish trailing metrics
   categories <- c('return', 'attribution', 'category')
@@ -584,14 +931,252 @@ publishData <- function(allocation, totalReturn, attribution,
       } else {
         column <- 9
       }
-      writeWorksheet(wb, reportData, sheet=ws_publishData, startRow=row, startCol=column)
+      writeWorksheet(wb, reportData, sheet='Summary', startRow=row, startCol=column)
     }
   }
   saveWorkbook(wb, output.path)
- }
 }
+
+publishData_US <- function(allocation, totalReturn, attribution,
+                           categoryReturns, positionsData_US, account, reportDate, trailingMetrics) {
+  account.file.name <- paste0(reportDate, '_Top_Down_Attribution_Report_', account, '.xlsx')
+  template.name <- paste0('Top Down Attribution Template ',account, '.xlsx')
+  template.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', template.name)
+  output.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', account.file.name)
   
+  bestDay <- positionsData$bestDay
+  worstDay <- positionsData$worstDay
+  bestMTD <- positionsData$bestMTD
+  worstMTD <- positionsData$worstMTD
   
+  wb <- loadWorkbook(template.path, create = FALSE)
+  setStyleAction(wb,XLC$"STYLE_ACTION.NONE")
+  
+  US <- readWorksheet(wb, sheet='US')
+  writeWorksheet(wb, allocation, sheet='US', startRow=3, startCol=3)
+  writeWorksheet(wb, totalReturn, sheet='US', startRow=12, startCol=3)
+  writeWorksheet(wb, attribution, sheet='US', startRow=20, startCol=3)
+  writeWorksheet(wb, categoryReturns, sheet='US', startRow=30, startCol=3)
+  
+  writeWorksheet(wb, bestDay, sheet='US', startRow=3, startCol=14)
+  writeWorksheet(wb, worstDay, sheet='US', startRow=15, startCol=14)
+  
+  writeWorksheet(wb, bestMTD, sheet='US', startRow=29, startCol=14)
+  writeWorksheet(wb, worstMTD, sheet='US', startRow=41, startCol=14)
+  
+  # publish trailing metrics
+  categories <- c('return', 'attribution', 'category')
+  
+  for(period in names(trailingMetrics)){
+    dataPacket <- trailingMetrics[[period]]
+    for(category in names(dataPacket)){
+      reportData <- dataPacket[[category]]
+      if(category=='return') {
+        row <- 12
+      } else if (category=='attribution') {
+        row <- 20
+      } else {
+        row <- 30
+      }
+      if(period=='5Day') {
+        column <- 4
+      } else if(period=='MTD') {
+        column <- 5
+      } else if(period=='QTD') {
+        column <- 6
+      } else if(period=='3M') {
+        column <- 7 
+      } else if(period=='YTD') {
+        column <- 8
+      } else {
+        column <- 9
+      }
+      writeWorksheet(wb, reportData, sheet='US', startRow=row, startCol=column)
+    }
+  }
+  saveWorkbook(wb, output.path)
+}  
+
+publishData_Intl <- function(allocation, totalReturn, attribution,
+                             categoryReturns, positionsData_Intl, account, reportDate, trailingMetrics) {
+  account.file.name <- paste0(reportDate, '_Top_Down_Attribution_Report_', account, '.xlsx')
+  template.name <- paste0('Top Down Attribution Template ',account, '.xlsx')
+  template.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', template.name)
+  output.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', account.file.name)
+  
+  bestDay <- positionsData$bestDay
+  worstDay <- positionsData$worstDay
+  bestMTD <- positionsData$bestMTD
+  worstMTD <- positionsData$worstMTD
+  
+  wb <- loadWorkbook(template.path, create = FALSE)
+  setStyleAction(wb,XLC$"STYLE_ACTION.NONE")
+  
+  Intl <- readWorksheet(wb, sheet='Intl')
+  writeWorksheet(wb, allocation, sheet='Intl', startRow=3, startCol=3)
+  writeWorksheet(wb, totalReturn, sheet='Intl', startRow=12, startCol=3)
+  writeWorksheet(wb, attribution, sheet='Intl', startRow=20, startCol=3)
+  writeWorksheet(wb, categoryReturns, sheet='Intl', startRow=30, startCol=3)
+  
+  writeWorksheet(wb, bestDay, sheet='Intl', startRow=3, startCol=14)
+  writeWorksheet(wb, worstDay, sheet='Intl', startRow=15, startCol=14)
+  
+  writeWorksheet(wb, bestMTD, sheet='Intl', startRow=29, startCol=14)
+  writeWorksheet(wb, worstMTD, sheet='Intl', startRow=41, startCol=14)
+  
+  # publish trailing metrics
+  categories <- c('return', 'attribution', 'category')
+  
+  for(period in names(trailingMetrics)){
+    dataPacket <- trailingMetrics[[period]]
+    for(category in names(dataPacket)){
+      reportData <- dataPacket[[category]]
+      if(category=='return') {
+        row <- 12
+      } else if (category=='attribution') {
+        row <- 20
+      } else {
+        row <- 30
+      }
+      if(period=='5Day') {
+        column <- 4
+      } else if(period=='MTD') {
+        column <- 5
+      } else if(period=='QTD') {
+        column <- 6
+      } else if(period=='3M') {
+        column <- 7 
+      } else if(period=='YTD') {
+        column <- 8
+      } else {
+        column <- 9
+      }
+      writeWorksheet(wb, reportData, sheet='Intl', startRow=row, startCol=column)
+    }
+  }
+  saveWorkbook(wb, output.path)
+} 
+
+publishData_FI <- function(allocation, totalReturn, attribution,
+                           categoryReturns, positionsData_FI, account, reportDate, trailingMetrics) {
+  account.file.name <- paste0(reportDate, '_Top_Down_Attribution_Report_', account, '.xlsx')
+  template.name <- paste0('Top Down Attribution Template ',account, '.xlsx')
+  template.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', template.name)
+  output.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', account.file.name)
+  
+  bestDay <- positionsData$bestDay
+  worstDay <- positionsData$worstDay
+  bestMTD <- positionsData$bestMTD
+  worstMTD <- positionsData$worstMTD
+  
+  wb <- loadWorkbook(template.path, create = FALSE)
+  setStyleAction(wb,XLC$"STYLE_ACTION.NONE")
+  
+  FI <- readWorksheet(wb, sheet='FI')
+  writeWorksheet(wb, allocation, sheet='FI', startRow=3, startCol=3)
+  writeWorksheet(wb, totalReturn, sheet='FI', startRow=12, startCol=3)
+  writeWorksheet(wb, attribution, sheet='FI', startRow=20, startCol=3)
+  writeWorksheet(wb, categoryReturns, sheet='FI', startRow=30, startCol=3)
+  
+  writeWorksheet(wb, bestDay, sheet='FI', startRow=3, startCol=14)
+  writeWorksheet(wb, worstDay, sheet='FI', startRow=15, startCol=14)
+  
+  writeWorksheet(wb, bestMTD, sheet='FI', startRow=29, startCol=14)
+  writeWorksheet(wb, worstMTD, sheet='FI', startRow=41, startCol=14)
+  
+  # publish trailing metrics
+  categories <- c('return', 'attribution', 'category')
+  
+  for(period in names(trailingMetrics)){
+    dataPacket <- trailingMetrics[[period]]
+    for(category in names(dataPacket)){
+      reportData <- dataPacket[[category]]
+      if(category=='return') {
+        row <- 12
+      } else if (category=='attribution') {
+        row <- 20
+      } else {
+        row <- 30
+      }
+      if(period=='5Day') {
+        column <- 4
+      } else if(period=='MTD') {
+        column <- 5
+      } else if(period=='QTD') {
+        column <- 6
+      } else if(period=='3M') {
+        column <- 7 
+      } else if(period=='YTD') {
+        column <- 8
+      } else {
+        column <- 9
+      }
+      writeWorksheet(wb, reportData, sheet='FI', startRow=row, startCol=column)
+    }
+  }
+  saveWorkbook(wb, output.path)
+} 
+
+publishData_Other <- function(allocation, totalReturn, attribution,
+                              categoryReturns, positionsData_Other, account, reportDate, trailingMetrics) {
+  account.file.name <- paste0(reportDate, '_Top_Down_Attribution_Report_', account, '.xlsx')
+  template.name <- paste0('Top Down Attribution Template ',account, '.xlsx')
+  template.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', template.name)
+  output.path <- paste0('S:/Unit10230/CTI_CMS Project/Top Down Attribution/FoFs/Dashboards/', account.file.name)
+  
+  bestDay <- positionsData$bestDay
+  worstDay <- positionsData$worstDay
+  bestMTD <- positionsData$bestMTD
+  worstMTD <- positionsData$worstMTD
+  
+  wb <- loadWorkbook(template.path, create = FALSE)
+  setStyleAction(wb,XLC$"STYLE_ACTION.NONE")
+  
+  Other <- readWorksheet(wb, sheet='Other')
+  writeWorksheet(wb, allocation, sheet='Other', startRow=3, startCol=3)
+  writeWorksheet(wb, totalReturn, sheet='Other', startRow=12, startCol=3)
+  writeWorksheet(wb, attribution, sheet='Other', startRow=20, startCol=3)
+  writeWorksheet(wb, categoryReturns, sheet='Other', startRow=30, startCol=3)
+  
+  writeWorksheet(wb, bestDay, sheet='Other', startRow=3, startCol=14)
+  writeWorksheet(wb, worstDay, sheet='Other', startRow=15, startCol=14)
+  
+  writeWorksheet(wb, bestMTD, sheet='Other', startRow=29, startCol=14)
+  writeWorksheet(wb, worstMTD, sheet='Other', startRow=41, startCol=14)
+  
+  # publish trailing metrics
+  categories <- c('return', 'attribution', 'category')
+  
+  for(period in names(trailingMetrics)){
+    dataPacket <- trailingMetrics[[period]]
+    for(category in names(dataPacket)){
+      reportData <- dataPacket[[category]]
+      if(category=='return') {
+        row <- 12
+      } else if (category=='attribution') {
+        row <- 20
+      } else {
+        row <- 30
+      }
+      if(period=='5Day') {
+        column <- 4
+      } else if(period=='MTD') {
+        column <- 5
+      } else if(period=='QTD') {
+        column <- 6
+      } else if(period=='3M') {
+        column <- 7 
+      } else if(period=='YTD') {
+        column <- 8
+      } else {
+        column <- 9
+      }
+      writeWorksheet(wb, reportData, sheet='Other', startRow=row, startCol=column)
+    }
+  }
+  saveWorkbook(wb, output.path)
+} 
+
 #period choices are: 5day, MTD, QTD, 3M, YTD, 1Y
 getDays <- function(reportDate, period) {
   calendarDate <- as.Date(reportDate, '%Y.%m.%d')

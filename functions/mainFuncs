@@ -1,14 +1,13 @@
 # mainFuncs file
 source(here('functions', 'dateFuncs.R'))
 source(here('functions', 'getFuncs.R'))
-source(here('functions', 'reportFuncs.R'))
+
 
 main <- function() {
   dates <- getDates()
-  #start_time <- Sys.time()
-  attributionData <- getData(dates)
-  makeReports(attributionData)
-  #end_time <- Sys.time()
+  start_time <- Sys.time()
+  getData(dates)
+  end_time <- Sys.time()
   #print('Processing time for reports: ')
-  #print(end_time - start_time)
+  print(end_time - start_time)
 }
